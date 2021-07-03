@@ -2,8 +2,11 @@
 
 [![Built with Cookiecutter Django](https://img.shields.io/badge/built%20with-Cookiecutter%20Django-ff69b4.svg?logo=cookiecutter)](https://github.com/pydanny/cookiecutter-django/)
 
+_Retrieves keys and provides them using Fairplay_
 
 ## Development Setup
+
+First of all, you need to clone the `FairplayKSM` into the `docker`directory. Otherwise it will be missing the KSM.
 
 Copy the `.env.example` file to `.env` and modify the secret values with your own
 
