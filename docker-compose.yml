@@ -1,0 +1,114 @@
+version: '3.8'
+
+volumes:
+  local_postgres_data: {}
+
+secrets:
+  private_key:
+    file: ./secrets/dev_private_key.pem
+  ask:
+    file: ./secrets/ask
+
+services:
+  django: &django
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile
+      target: dev
+    image: fairplay_server_local_django
+    depends_on:
+      - postgres
+      - mailhog
+      - celerybeat
+      - celeryworker
+    volumes:
+      - .:/app:z
+    environment:
+      # General
+      - DJANGO_DEBUG=${DJANGO_DEBUG:-True}
+      - IPYTHONDIR=/app/.ipython
+      # Redis
+      - REDIS_URL=redis://redis:6379/0
+      # General
+      - DJANGO_SETTINGS_MODULE=${DJANGO_SETTINGS_MODULE:-config.settings.base}
+      - DJANGO_SECRET_KEY
+      - DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,0.0.0.0}
+      - KEYSERVER_BASE_URL=${KEYSERVER_BASE_URL:-http://host.docker.internal:8000/api/keys}
+      - KEYSERVER_TOKEN
+      # Security
+      - DJANGO_SECURE_SSL_REDIRECT=False
+      # Email
+      - EMAIL_HOST=mailhog
+      - EMAIL_PORT=1025
+      # Gunicorn
+      - WEB_CONCURRENCY=4
+      # Postgres
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-fairplay_server}
+      - POSTGRES_USER=${POSTGRES_USER:-fairplay_server}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-fairplay_server}
+    secrets:
+      - private_key
+      - ask
+
+    ports:
+      - "${EXTERNAL_PORT_DJANGO:-8000}:8000"
+    command: ["uvicorn", "config.asgi:application", "--host", "0.0.0.0", "--reload"]
+
+  postgres:
+    image: postgres:12.3
+    volumes:
+      - local_postgres_data:/var/lib/postgresql/data:Z
+    environment:
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-fairplay_server}
+      - POSTGRES_USER=${POSTGRES_USER:-fairplay_server}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-fairplay_server}
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.0
+    ports:
+      - "${EXTERNAL_PORT_MAILHOG:-8025}:8025"
+
+  redis:
+    image: redis:5.0
+
+  celeryworker:
+    <<: *django
+    image: fairplay_server_local_celeryworker
+    depends_on:
+      - redis
+      - postgres
+      - mailhog
+    ports: []
+    entrypoint: '/worker-entrypoint'
+    command: 'start-celeryworker'
+
+  celerybeat:
+    <<: *django
+    image: fairplay_server_local_celerybeat
+    depends_on:
+      - redis
+      - postgres
+      - mailhog
+    ports: []
+    entrypoint: '/worker-entrypoint'
+    command: 'start-celerybeat'
+
+  flower:
+    image: mher/flower:0.9.7@sha256:e9c931bf7bdb1c975d49029c89fce0fef18d2dd7a1cec1d39dff48cf26c6a3bd
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      # Celery Flower
+      - CELERY_FLOWER_USER=${CELERY_FLOWER_USER:-tv7api}
+      - CELERY_FLOWER_PASSWORD
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
+    volumes:
+      - ./docker/bin/start-flower:/usr/local/bin/start-flower
+    ports:
+      - "${EXTERNAL_PORT_FLOWER:-5555}:5555"
+    command: 'start-flower'
